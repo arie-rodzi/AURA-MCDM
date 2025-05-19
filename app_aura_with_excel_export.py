@@ -1,11 +1,68 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
-from aura.core import AURA
 
+# AURA class (single file version)
+class AURA:
+    def __init__(self, matrix, types, weights=None, alpha=0.5, p=2):
+        self.matrix = np.array(matrix, dtype=float)
+        self.types = types
+        self.n_criteria = self.matrix.shape[1]
+        self.weights = np.array(weights if weights else [1/self.n_criteria]*self.n_criteria)
+        self.alpha = alpha
+        self.p = p
+
+    def normalize(self):
+        m, n = self.matrix.shape
+        norm = np.zeros_like(self.matrix)
+        for j in range(n):
+            col = self.matrix[:, j]
+            h = np.max(col) - np.min(col)
+            if h == 0:
+                norm[:, j] = 1.0
+                continue
+            if self.types[j] == 'benefit':
+                k = np.max(col)
+            elif self.types[j] == 'cost':
+                k = np.mean(col)
+            elif isinstance(self.types[j], (int, float)):
+                k = self.types[j]
+            else:
+                raise ValueError(f"Invalid type for criterion {j}")
+            norm[:, j] = 1 - np.abs(col - k) / h
+        self.norm_matrix = norm
+
+    def weighted(self):
+        self.V = self.norm_matrix * self.weights
+
+    def benchmarks(self):
+        self.PIS = np.max(self.V, axis=0)
+        self.NIS = np.min(self.V, axis=0)
+        self.AVG = np.mean(self.V, axis=0)
+
+    def distance(self, ref):
+        return np.power(np.sum(np.abs(self.V - ref)**self.p, axis=1), 1/self.p)
+
+    def correct(self, d):
+        sigma = np.max(d) - np.min(d)
+        return d + sigma * d**2
+
+    def score(self):
+        d_pos = self.correct(self.distance(self.PIS))
+        d_neg = self.correct(self.distance(self.NIS))
+        d_avg = self.correct(self.distance(self.AVG))
+        return (self.alpha * (d_pos - d_neg) + (1 - self.alpha) * d_avg) / 2
+
+    def rank(self):
+        self.normalize()
+        self.weighted()
+        self.benchmarks()
+        scores = self.score()
+        return scores, np.argsort(scores) + 1
+
+# Streamlit Web UI
 st.set_page_config(page_title="AURA-MCDM Web App", layout="wide")
 st.title("AURA (Adaptive Utility Ranking Algorithm) for MCDM")
 
@@ -69,7 +126,6 @@ if uploaded_file:
             model = AURA(matrix, types, weights)
             scores, _ = model.rank()
 
-            # Lower scores are better
             sorted_indices = np.argsort(scores)
             ranks = np.empty_like(sorted_indices)
             ranks[sorted_indices] = np.arange(1, len(scores) + 1)
@@ -97,7 +153,6 @@ if uploaded_file:
                 dp = model.correct(model.distance(model.PIS))
                 dn = model.correct(model.distance(model.NIS))
                 da = model.correct(model.distance(model.AVG))
-
                 df_d = pd.DataFrame({
                     "Alternative": alternative_names,
                     "Dist to PIS": dp,
