@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -99,23 +98,32 @@ if uploaded_file:
         df_matrix_display.insert(0, "Alternative", alternative_names)
         st.dataframe(df_matrix_display)
 
-        types = []
-        for col in criteria_columns:
-            if isinstance(col, str) and 'benefit' in col.lower():
-                types.append('benefit')
-            elif isinstance(col, str) and 'cost' in col.lower():
-                types.append('cost')
-            elif isinstance(col, str) and 'target' in col.lower():
-                try:
-                    ref = float(col.split(':')[-1].replace(')', '').strip())
-                    types.append(ref)
-                except:
-                    types.append('benefit')
+        st.subheader("⚙️ Define Criterion Type and (if applicable) Target Value")
+        manual_types = []
+        target_values = {}
+
+        for i, col in enumerate(criteria_columns):
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                ctype = st.selectbox(
+                    f"Type for '{col}'", 
+                    options=["Benefit", "Cost", "Target (custom)"], 
+                    key=f"type_{i}"
+                )
+            if ctype == "Target (custom)":
+                with c2:
+                    target = st.number_input(f"🎯 Target for '{col}'", key=f"target_{i}")
+                    manual_types.append(target)
+                    target_values[col] = target
             else:
-                types.append('benefit')
+                manual_types.append(ctype.lower())
+
+        st.write("✅ Finalized Criteria Types:")
+        for col, t in zip(criteria_columns, manual_types):
+            st.write(f"- **{col}**: {'Target (' + str(t) + ')' if isinstance(t, float) else t.capitalize()}")
 
         if st.button("🚀 Run AURA"):
-            model = AURA(matrix, types, weights, alpha=alpha, p=p)
+            model = AURA(matrix, manual_types, weights, alpha=alpha, p=p)
             scores, _ = model.rank()
 
             sorted_indices = np.argsort(scores)
